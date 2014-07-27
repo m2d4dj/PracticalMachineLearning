@@ -1,0 +1,87 @@
+Predicting Exercise Performance
+=========
+
+## Synopsis
+We predict how well an exercise was executed by participants wearing accelerometers.  See the following url for more information on the data: 
+
+http://groupware.les.inf.puc-rio.br/har
+
+## Pre-processing 
+
+We load the necessary packages.  
+```{r}
+library(randomForest)
+library(caret)
+```
+
+We download the data from the course website:   
+```{r}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "pml-training.csv", method="curl")
+data<-read.csv("pml-training.csv")
+```
+
+There are many columns with mostly NAs or blank entries.  We remove any column where at least 90% of the entries are NA or blank.  
+```{r}
+count.na<-sapply(1:length(data), function(x) sum(is.na(data[,x])))
+remove<-count.na>0.9*nrow(data)
+data<-data[,!remove]
+
+count.blank<-sapply(1:length(data), function(x) sum(data[,x]==""))
+remove<-count.blank>0.9*nrow(data)
+data<-data[,!remove]
+```
+
+
+We break up the dataset into a training data set and a testing dataset, where 70% of the data is in the training dataset.  
+```{r}
+set.seed(323)
+size<-floor(0.7*nrow(data))
+train<-sample(1:nrow(data), size)
+trainData<-data[train,]
+testData<-data[-train,]
+```
+
+We keep only the variables corresponding to measurements taken by the wearable accelerometers.  In particular, we ignore the columns corresponding to the identity of the participant and the time of the activity.     
+```{r}
+var<-trainData[,8:59]
+```
+
+## Model fitting
+
+We apply a random forest with 500 trees to build our model.  Since we are using a random forest we do not need to apply cross-validation to avoid overfitting. 
+```{r}
+mod<-randomForest(trainData$classe~., ntree=500, data=var)
+```
+
+We plot the variables by importance.    
+```{r fig.height=16, fig.width=13}
+varImpPlot(mod, n.var=30, main="Top thirty variables", scale=FALSE)
+```
+
+We apply cross validation for feature selection.  
+```{r}
+a<-rfcv(var, trainData$classe, step=0.5, ntree=50)
+a$error.cv
+```
+
+Since it seems that going from 52 variables to 26 variables does not make much difference we cut down our set of variables to 26.  
+```{r}
+keep<-mod$importance[order(-mod$importance),]
+keep<-keep[1:26]
+var2<-var[names(keep)]
+```
+
+We apply a random forest with 500 trees to build our model on our dataset with 26 variables.  
+
+```{r}
+mod2<-randomForest(trainData$classe~., ntree=500, data=var2)
+```
+## Results
+
+We apply our model to the testing data to see the out of sample error rate.      
+```{r}
+pred<-predict(mod2, newdata=testData)
+confusionMatrix(testData$classe, pred)
+```
+
+
